@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>Stock Info - Custom-Event Demo (Lit-HTML)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+    }
+
+    .stock-tickers {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: .5rem;
+    }
+  </style>
+  <script type="module">
+
+    import './components/stock-info.js';
+
+    let updating = false;
+    let refreshRate = 1000;  // TODO: Fetch this from the server
+    let stocks = await tryFetchData('/data');
+    let prices = await tryFetchData('/prices'); // holds the latest price for each symbol
+
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms))
+    }
+
+    // TODO: modify this function so it accepts and uses the options object to set HTTP method, headers, body, etc.
+    async function tryFetchData(path) {
+      try {
+        let response = await fetch(path);
+        if (response.ok) {
+          return await response.json();
+        } else {
+          throw new Error("Could not find the data");
+        }
+      } catch (err) {
+        console.log(err);
+      }
+    }
+
+    function validateInput(changeEvent) {
+      const updatedValue = +(changeEvent.target.value);
+      const min = 50;
+      const max = 5000;
+      if (!isNaN(updatedValue)
+        && updatedValue <= max
+        && updatedValue >= min
+      ) {
+        // TODO: use the PUT /refreshRate endpoint to update the refresh rate
+        refreshRate = updatedValue;
+      } else {
+        const errorSpot = document.getElementById('input-errors');
+        errorSpot.textContent = `Sorry, must be a number between ${min} and ${max}`
+        setTimeout(() => {
+          errorSpot.textContent = ''
+        }, 1000);
+        changeEvent.stopPropagation();
+      }
+    }
+
+    // TODO: Replace this with SSE
+    async function updatePrices() {
+      while (updating) {
+
+        const newPrices = await tryFetchData('/prices');
+
+        for (let stock of stocks) {
+          const newPrice = newPrices[stock.symbol];
+          if (prices[stock.symbol] !== newPrice) {
+            prices[stock.symbol] = newPrice;
+            const payload = { stock: stock.symbol, value: newPrice };
+            console.log(payload);
+            const e = new CustomEvent('stock-update', { detail: payload });
+            document.dispatchEvent(e);
+          }
+        }
+
+        await delay(refreshRate);
+      }
+    }
+
+    const tickersEl = document.querySelector('.stock-tickers');
+    stocks.forEach(s => {
+      // Create the stock-ticker element
+      const el = document.createElement('stock-info');
+      el.name = s.name;
+      el.symbol = s.symbol;
+      el.currentValue = prices[s.symbol];
+      el.previousValue = prices[s.symbol];
+      // Add it to the .stock-ticker div
+      tickersEl.appendChild(el);
+    });
+
+    let updateEvents; // TODO: Set this to a SSE EventSource in the toggleUpdates function
+    function toggleUpdates() {
+      const toggleBtn = document.getElementById("update-toggle");
+
+      updating = !updating;
+
+      if (updating) {
+        toggleBtn.textContent = "TOGGLE UPDATES 🟢";
+        // TODO: Replace this call by setting updateEvents to an EventSource on the /prices/stream endpoint
+        updatePrices();
+      } else {
+        toggleBtn.textContent = "TOGGLE UPDATES 🔴";
+        // TODO: close the updateEvents EventSource object
+      }
+    }
+
+    document.getElementById("update-toggle").addEventListener('click', toggleUpdates);
+    const refreshRateEl = document.querySelector('#refresh-rate');
+    refreshRateEl.value = refreshRate;
+    refreshRateEl.addEventListener('change', validateInput);
+
+  </script>
+</head>
+
+<body>
+  <h1>Stock Info - Custom Event Demo</h1>
+  <button id="update-toggle">TOGGLE UPDATES 🔴</button>
+  <label for="refresh-rate">Refresh Rate ( in ms )</label>
+  <input id="refresh-rate" value="1000">
+  <p id="input-errors"></p>
+  <div class="stock-tickers">
+  </div>
+</body>
+
+</html>

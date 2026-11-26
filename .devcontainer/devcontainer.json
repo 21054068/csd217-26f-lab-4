@@ -1,0 +1,23 @@
+{
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "postCreateCommand": "gh extension install saultcollege/gh-lab && npm install",
+  "postAttachCommand": "gh lab setup-check",
+
+  "forwardPorts": [3000,5500,8080,8443],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "streetsidesoftware.code-spell-checker",
+        "bierner.lit-html"
+      ],
+      "settings": {
+        "terminal.integrated.autoFocusDelay": 0
+      }
+    }
+  }
+}
