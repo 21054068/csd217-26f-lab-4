@@ -21,18 +21,24 @@
     import './components/stock-info.js';
 
     let updating = false;
-    let refreshRate = 1000;  // TODO: Fetch this from the server
+    let refreshRate = 1000;  // TODO: Fetch this from the server | kept it as a fallback
     let stocks = await tryFetchData('/data');
     let prices = await tryFetchData('/prices'); // holds the latest price for each symbol
+    const rateData = await tryFetchData('/refreshRate'); //loads the servers current value when the page opens
+    if (rateData) {
+      refreshRate = rateData.refreshRate;
+      document.querySelector('#refresh-rate').value = refreshRate;
+    }
 
     function delay(ms) {
       return new Promise(resolve => setTimeout(resolve, ms))
     }
 
     // TODO: modify this function so it accepts and uses the options object to set HTTP method, headers, body, etc.
-    async function tryFetchData(path) {
+    //pass request options so the same helper can send GET, PUT, and DELETE.
+    async function tryFetchData(path, options = {}) {
       try {
-        let response = await fetch(path);
+        let response = await fetch(path, options);
         if (response.ok) {
           return await response.json();
         } else {
@@ -43,15 +49,23 @@
       }
     }
 
-    function validateInput(changeEvent) {
+    async function validateInput(changeEvent) {
       const updatedValue = +(changeEvent.target.value);
       const min = 50;
       const max = 5000;
-      if (!isNaN(updatedValue)
-        && updatedValue <= max
-        && updatedValue >= min
-      ) {
+      if (!isNaN(updatedValue) && updatedValue <= max && updatedValue >= min) 
+        {
         // TODO: use the PUT /refreshRate endpoint to update the refresh rate
+      const rateData = await tryFetchData('/refreshRate', { //save the requested interval on the server as JSON.
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshRate: updatedValue })
+      });
+
+      if (rateData) {
+        refreshRate = rateData.refreshRate; // Use the rate for both refreshing and the displayed input.
+        changeEvent.target.value = refreshRate;
+      }
         refreshRate = updatedValue;
       } else {
         const errorSpot = document.getElementById('input-errors');
@@ -96,33 +110,60 @@
       tickersEl.appendChild(el);
     });
 
-    let updateEvents; // TODO: Set this to a SSE EventSource in the toggleUpdates function
-    function toggleUpdates() {
-      const toggleBtn = document.getElementById("update-toggle");
+let updateEvents;
 
-      updating = !updating;
+function toggleUpdates() {
+  const toggleBtn = document.getElementById('update-toggle');
 
-      if (updating) {
-        toggleBtn.textContent = "TOGGLE UPDATES 🟢";
-        // TODO: Replace this call by setting updateEvents to an EventSource on the /prices/stream endpoint
-        updatePrices();
-      } else {
-        toggleBtn.textContent = "TOGGLE UPDATES 🔴";
-        // TODO: close the updateEvents EventSource object
+  updating = !updating;
+
+  if (updating) {
+    toggleBtn.textContent = 'TOGGLE UPDATES 🟢';
+
+    // Open a stream so the server can push changed prices.
+    updateEvents = new EventSource('/prices/stream');
+
+    updateEvents.addEventListener('price-update', function (event) {
+      const updates = JSON.parse(event.data);
+
+      // Forward each changed price to the Lit components as a stock-update event.
+      for (const update of updates) {
+        const stockEvent = new CustomEvent('stock-update', {
+          detail: update
+        });
+        document.dispatchEvent(stockEvent);
       }
-    }
+    });
+  } else {
+    toggleBtn.textContent = 'TOGGLE UPDATES 🔴';
+
+    // Close the stream when the user stops updates.
+    updateEvents.close();
+  }
+}
 
     document.getElementById("update-toggle").addEventListener('click', toggleUpdates);
     const refreshRateEl = document.querySelector('#refresh-rate');
     refreshRateEl.value = refreshRate;
     refreshRateEl.addEventListener('change', validateInput);
+    document.getElementById('reset-refresh-rate')
+    .addEventListener('click', async function () { // get the server to restore the default interval.
+    const rateData = await tryFetchData('/refreshRate', {
+      method: 'DELETE'
+    });
 
+    if (rateData) {
+      refreshRate = rateData.refreshRate;
+      refreshRateEl.value = refreshRate;
+    }
+  });
   </script>
 </head>
 
 <body>
   <h1>Stock Info - Custom Event Demo</h1>
   <button id="update-toggle">TOGGLE UPDATES 🔴</button>
+  <button id="reset-refresh-rate" type="button">Reset</button>
   <label for="refresh-rate">Refresh Rate ( in ms )</label>
   <input id="refresh-rate" value="1000">
   <p id="input-errors"></p>
